@@ -24,64 +24,81 @@
             border-radius: 20px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.5);
             text-align: center;
-            width: 400px;
+            width: 420px;
             border: 1px solid #2a2a35;
         }
         h1 { color: #ff8200; margin-bottom: 20px; font-size: 24px; }
+        .input-group { margin-bottom: 20px; }
         input {
             width: 80%;
             padding: 12px;
             border-radius: 10px;
-            border: none;
+            border: 2px solid #2a2a35;
             background: #252530;
             color: white;
             text-align: center;
-            font-size: 18px;
-            margin-bottom: 20px;
+            font-size: 20px;
+            transition: 0.3s;
         }
+        input:focus { border-color: #ff8200; outline: none; }
         button {
             background: #ff8200;
             color: white;
             border: none;
-            padding: 12px 30px;
+            padding: 12px 35px;
             border-radius: 10px;
             font-weight: bold;
             cursor: pointer;
             transition: 0.3s;
+            font-size: 16px;
         }
-        button:hover { background: #e67500; transform: scale(1.05); }
-        .status { margin-top: 20px; font-size: 14px; color: #888; }
-        .active-users {
-            margin-top: 20px;
+        button:hover { background: #e67500; transform: translateY(-2px); }
+        .status { margin-top: 15px; font-size: 15px; color: #888; font-weight: 500; }
+        .user-list {
+            margin-top: 25px;
             width: 100%;
-            max-height: 150px;
+            max-height: 200px;
             overflow-y: auto;
             text-align: right;
+            padding-right: 5px;
         }
         .user-item {
             background: #252530;
-            padding: 8px 12px;
-            margin: 5px 0;
-            border-radius: 5px;
+            padding: 12px 15px;
+            margin: 8px 0;
+            border-radius: 10px;
             display: flex;
             justify-content: space-between;
-            font-size: 13px;
+            align-items: center;
+            border-right: 4px solid #444;
         }
+        .user-item.nearby { border-right-color: #00ff00; background: #2a352a; }
+        .voice-indicator {
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            background: #333;
+            color: #ccc;
+        }
+        .nearby .voice-indicator { background: #006400; color: #fff; }
     </style>
 </head>
 <body>
 
     <div class="container">
         <h1>نظام المايك الاحترافي</h1>
-        <p>أدخل الكود الظاهر لك في روبلوكس للربط</p>
-        <input type="text" id="linkCode" placeholder="000000" maxlength="6">
-        <br>
-        <button id="connectBtn">ربط الحساب وبدء الصوت</button>
+        <div id="setupArea">
+            <p style="color: #bbb; margin-bottom: 15px;">أدخل كود الربط من داخل اللعبة</p>
+            <div class="input-group">
+                <input type="text" id="linkCode" placeholder="000000" maxlength="6">
+            </div>
+            <button id="connectBtn">تفعيل المايك والربط</button>
+        </div>
         
-        <div class="status" id="statusText">غير متصل</div>
+        <div class="status" id="statusText">بانتظار الربط...</div>
         
-        <div class="active-users" id="userList">
-            <!-- سيظهر اللاعبين القريبين هنا -->
+        <div class="user-list" id="userList">
+            <!-- قائمة اللاعبين القريبين -->
         </div>
     </div>
 
@@ -90,41 +107,48 @@
         let myStream;
         let peers = {};
         let myUserId = null;
+        let myId = null;
 
         const connectBtn = document.getElementById('connectBtn');
         const linkCodeInput = document.getElementById('linkCode');
         const statusText = document.getElementById('statusText');
         const userList = document.getElementById('userList');
+        const setupArea = document.getElementById('setupArea');
+
+        // سيرفرات المساعدة للربط عبر الإنترنت
+        const iceServers = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
 
         connectBtn.onclick = async () => {
             const code = linkCodeInput.value;
-            if (code.length !== 6) return alert("الرجاء إدخال كود صحيح");
+            if (code.length !== 6) return alert("الرجاء إدخال كود الربط المكون من 6 أرقام");
 
             try {
                 myStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
                 socket.emit('link_account', code);
-                statusText.innerText = "جاري الربط...";
+                statusText.innerText = "جاري التحقق من الكود...";
+                myId = socket.id;
             } catch (err) {
-                alert("يرجى السماح بالوصول للمايكروفون");
+                console.error(err);
+                alert("يجب السماح بالوصول للمايكروفون ليعمل النظام");
             }
         };
 
         socket.on('link_success', (data) => {
             myUserId = data.userId;
-            statusText.innerText = "تم الربط بنجاح! أنت متصل الآن";
+            statusText.innerText = "متصل بنجاح ✅";
             statusText.style.color = "#00ff00";
-            connectBtn.style.display = "none";
-            linkCodeInput.style.display = "none";
+            setupArea.style.display = "none";
         });
 
         socket.on('link_error', (msg) => {
             alert(msg);
-            statusText.innerText = "خطأ في الربط";
+            statusText.innerText = "فشل الربط ❌";
         });
 
         socket.on('signal', (data) => {
             const { from, signal } = data;
             if (!peers[from]) {
+                console.log("Receiving signal from:", from);
                 peers[from] = createPeer(from, false);
             }
             peers[from].signal(signal);
@@ -145,20 +169,26 @@
                     Math.pow(player.pos.z - myPos.z, 2)
                 );
 
-                if (dist < 50) {
-                    if (!peers[player.socketId]) {
+                // المسافة القصوى لسماع الصوت هي 60 متر
+                if (dist < 60) {
+                    // الطرف الذي له Socket ID أصغر هو من يبدأ الاتصال لمنع التصادم
+                    if (!peers[player.socketId] && socket.id < player.socketId) {
+                        console.log("Initiating peer with:", player.socketId);
                         peers[player.socketId] = createPeer(player.socketId, true);
                     }
-                    if (peers[player.socketId].audioElement) {
-                        const volume = Math.max(0, 1 - (dist / 50));
+                    
+                    // تحكم في مستوى الصوت
+                    if (peers[player.socketId] && peers[player.socketId].audioElement) {
+                        const volume = Math.max(0, 1 - (dist / 60));
                         peers[player.socketId].audioElement.volume = volume;
                     }
-                }
 
-                const item = document.createElement('div');
-                item.className = "user-item";
-                item.innerHTML = `<span>لاعب ID: ${player.userId}</span> <span style="color:#ff8200">${Math.floor(dist)}m</span>`;
-                userList.appendChild(item);
+                    // إضافة للواجهة بدون ذكر الأمتار
+                    const item = document.createElement('div');
+                    item.className = "user-item nearby";
+                    item.innerHTML = `<span>لاعب متصل</span> <span class="voice-indicator">قريب منك 🔊</span>`;
+                    userList.appendChild(item);
+                }
             });
         });
 
@@ -166,7 +196,8 @@
             const peer = new SimplePeer({
                 initiator: initiator,
                 trickle: false,
-                stream: myStream
+                stream: myStream,
+                config: { iceServers: iceServers }
             });
 
             peer.on('signal', (signal) => {
@@ -174,12 +205,15 @@
             });
 
             peer.on('stream', (stream) => {
+                console.log("Audio stream received from:", targetSocketId);
                 const audio = new Audio();
                 audio.srcObject = stream;
-                audio.play();
+                audio.play().catch(e => console.error("Audio play failed:", e));
                 peer.audioElement = audio;
             });
 
+            peer.on('error', (err) => console.error('Peer error:', err));
+            
             peer.on('close', () => {
                 if (peer.audioElement) peer.audioElement.remove();
                 delete peers[targetSocketId];
