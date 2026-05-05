@@ -2,49 +2,40 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>نظام المايك الاحترافي - V2</title>
+    <title>نظام المايك الاحترافي - V2.1</title>
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/simple-peer/9.11.1/simplepeer.min.js"></script>
     <style>
-        body { background-color: #0d0d12; color: #e0e0e0; font-family: 'Inter', 'Segoe UI', sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-        .card { background: #16161f; padding: 35px; border-radius: 24px; box-shadow: 0 20px 50px rgba(0,0,0,0.6); text-align: center; width: 450px; border: 1px solid #23232f; }
+        body { background-color: #0d0d12; color: #e0e0e0; font-family: 'Inter', sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .card { background: #16161f; padding: 35px; border-radius: 24px; box-shadow: 0 20px 50px rgba(0,0,0,0.6); text-align: center; width: 450px; border: 1px solid #23232f; position: relative; }
         h1 { color: #ff8200; font-size: 26px; margin-bottom: 8px; }
-        .subtitle { color: #888; font-size: 14px; margin-bottom: 25px; }
-        .input-box { width: 100%; padding: 14px; border-radius: 12px; border: 2px solid #2a2a38; background: #1c1c28; color: white; text-align: center; font-size: 22px; font-weight: bold; margin-bottom: 20px; box-sizing: border-box; transition: 0.3s; }
-        .input-box:focus { border-color: #ff8200; outline: none; box-shadow: 0 0 15px rgba(255,130,0,0.2); }
+        .input-box { width: 100%; padding: 14px; border-radius: 12px; border: 2px solid #2a2a38; background: #1c1c28; color: white; text-align: center; font-size: 22px; font-weight: bold; margin-bottom: 20px; box-sizing: border-box; }
         button { background: linear-gradient(135deg, #ff8200, #ff6600); color: white; border: none; padding: 15px 40px; border-radius: 12px; font-weight: 700; cursor: pointer; transition: 0.3s; width: 100%; font-size: 16px; }
-        button:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(255,102,0,0.4); }
-        .log-area { margin-top: 25px; text-align: right; background: #0b0b11; padding: 15px; border-radius: 12px; height: 120px; overflow-y: auto; border: 1px solid #1f1f2a; }
-        .log-msg { font-size: 12px; margin-bottom: 5px; color: #aaa; border-bottom: 1px solid #1a1a24; padding-bottom: 3px; }
-        .log-success { color: #00ff00; }
-        .log-error { color: #ff4444; }
-        .log-info { color: #00bbff; }
-        .secure-warning { color: #ffcc00; font-size: 11px; margin-top: 10px; display: none; background: rgba(255,204,0,0.1); padding: 10px; border-radius: 8px; }
+        .log-area { margin-top: 20px; text-align: right; background: #0b0b11; padding: 15px; border-radius: 12px; height: 100px; overflow-y: auto; border: 1px solid #1f1f2a; font-size: 11px; color: #888; }
+        .mic-test { margin-top: 15px; height: 10px; background: #222; border-radius: 5px; overflow: hidden; display: none; }
+        .mic-bar { height: 100%; background: #00ff00; width: 0%; transition: 0.1s; }
+        #remote-audios { display: none; }
     </style>
 </head>
 <body>
 
     <div class="card">
         <h1>نظام المايك الاحترافي</h1>
-        <div class="subtitle">نسخة الربط السريع والآمن</div>
-        
         <div id="setup">
             <input type="text" id="linkCode" class="input-box" placeholder="كود الربط">
-            <button id="startBtn">بدء الربط والمايك</button>
-            <div id="httpsWarning" class="secure-warning">
-                ⚠️ تنبيه: المتصفح يمنع المايكروفون لأن الرابط غير آمن (HTTP). 
-                <br>استخدم <b>https</b> أو <b>localhost</b>.
-            </div>
+            <button id="startBtn">بدء الربط</button>
         </div>
 
         <div id="activeInfo" style="display:none">
-            <div style="color:#00ff00; font-weight:bold; margin-bottom:15px;">● متصل بالخدمة</div>
+            <div style="color:#00ff00; font-weight:bold;">● متصل الآن</div>
+            <div class="mic-test" id="micTest"><div class="mic-bar" id="micBar"></div></div>
+            <p style="font-size:12px; color:#666;">تحدث لتجربة مستوى المايك الخاص بك</p>
         </div>
 
-        <div class="log-area" id="logs">
-            <div class="log-msg">بانتظار إدخال الكود...</div>
-        </div>
+        <div class="log-area" id="logs">بانتظار البدء...</div>
     </div>
+
+    <div id="remote-audios"></div>
 
     <script>
         const socket = io();
@@ -52,55 +43,58 @@
         let peers = {};
         let myUserId = null;
 
-        const logArea = document.getElementById('logs');
-        function addLog(msg, type = '') {
-            const div = document.createElement('div');
-            div.className = `log-msg ${type}`;
-            div.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
-            logArea.prepend(div);
-        }
+        const addLog = (msg, color="#888") => {
+            const logs = document.getElementById('logs');
+            logs.innerHTML = `<div style="color:${color}">[${new Date().toLocaleTimeString()}] ${msg}</div>` + logs.innerHTML;
+        };
 
-        // التحقق من أمان المتصفح
-        if (!window.isSecureContext && location.hostname !== "localhost") {
-            document.getElementById('httpsWarning').style.display = "block";
-            addLog("تحذير: المتصفح سيحظر المايك لأن الرابط غير آمن!", "log-error");
+        // وظيفة لاختبار المايك الخاص باللاعب
+        function setupMicVisualizer(stream) {
+            const audioContext = new AudioContext();
+            const analyser = audioContext.createAnalyser();
+            const source = audioContext.createMediaStreamSource(stream);
+            source.connect(analyser);
+            analyser.fftSize = 256;
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            const micBar = document.getElementById('micBar');
+            document.getElementById('micTest').style.display = 'block';
+
+            function update() {
+                analyser.getByteFrequencyData(dataArray);
+                let sum = 0;
+                for(let i=0; i<dataArray.length; i++) sum += dataArray[i];
+                let average = sum / dataArray.length;
+                micBar.style.width = Math.min(100, average * 2) + '%';
+                requestAnimationFrame(update);
+            }
+            update();
         }
 
         document.getElementById('startBtn').onclick = async () => {
             const code = document.getElementById('linkCode').value;
-            if (code.length < 5) return alert("الكود غير مكتمل");
-
             try {
-                addLog("جاري طلب الوصول للمايكروفون...", "log-info");
-                myStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-                addLog("تم السماح بالمايكروفون ✅", "log-success");
-                
+                myStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                addLog("تم الوصول للمايكروفون ✅", "#00ff00");
+                setupMicVisualizer(myStream);
                 socket.emit('link_account', code);
-                addLog("جاري التحقق من الكود مع روبلوكس...", "log-info");
             } catch (err) {
-                addLog("فشل الوصول للمايك! تأكد من السماح بالأذونات.", "log-error");
-                alert("يجب السماح بالمايكروفون ليعمل النظام.");
+                addLog("خطأ: يرجى السماح بالمايكروفون من المتصفح", "#ff4444");
             }
         };
 
         socket.on('link_success', (data) => {
             myUserId = data.userId;
-            addLog(`تم الربط بنجاح مع لاعب ID: ${myUserId}`, "log-success");
-            document.getElementById('setup').style.display = "none";
-            document.getElementById('activeInfo').style.display = "block";
-        });
-
-        socket.on('link_error', (msg) => {
-            addLog("خطأ: " + msg, "log-error");
+            addLog("تم الربط مع روبلوكس بنجاح", "#00ff00");
+            document.getElementById('setup').style.display = 'none';
+            document.getElementById('activeInfo').style.display = 'block';
         });
 
         socket.on('signal', (data) => {
-            const { from, signal } = data;
-            if (!peers[from]) {
-                addLog("تلقي إشارة صوتية من لاعب قريب...", "log-info");
-                peers[from] = createPeer(from, false);
+            if (!peers[data.from]) {
+                addLog("لاعب قريب يحاول التحدث معك...", "#ff8200");
+                peers[data.from] = createPeer(data.from, false);
             }
-            peers[from].signal(signal);
+            peers[data.from].signal(data.signal);
         });
 
         socket.on('positions_updated', (allPlayers) => {
@@ -109,49 +103,42 @@
 
             Object.values(allPlayers).forEach(player => {
                 if (player.userId === myUserId) return;
+                const d = Math.sqrt(Math.pow(player.pos.x-myPos.x,2)+Math.pow(player.pos.y-myPos.y,2)+Math.pow(player.pos.z-myPos.z,2));
 
-                const dist = Math.sqrt(Math.pow(player.pos.x-myPos.x,2)+Math.pow(player.pos.y-myPos.y,2)+Math.pow(player.pos.z-myPos.z,2));
-
-                if (dist < 60) {
+                if (d < 60) {
                     if (!peers[player.socketId] && socket.id < player.socketId) {
-                        addLog("بدء إنشاء اتصال صوتي مع لاعب قريب...", "log-info");
+                        addLog("فتح قناة اتصال مع لاعب قريب...", "#00bbff");
                         peers[player.socketId] = createPeer(player.socketId, true);
                     }
                     if (peers[player.socketId] && peers[player.socketId].audioElement) {
-                        peers[player.socketId].audioElement.volume = Math.max(0, 1 - (dist / 60));
+                        peers[player.socketId].audioElement.volume = Math.max(0, 1 - (d / 60));
                     }
                 }
             });
         });
 
-        function createPeer(targetSocketId, initiator) {
+        function createPeer(targetId, initiator) {
             const peer = new SimplePeer({
                 initiator: initiator,
-                trickle: false,
                 stream: myStream,
-                config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] }
+                trickle: false,
+                config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
             });
 
-            peer.on('signal', (signal) => {
-                socket.emit('signal', { to: targetSocketId, signal });
-            });
+            peer.on('signal', (sig) => socket.emit('signal', { to: targetId, signal: sig }));
 
             peer.on('stream', (stream) => {
-                addLog("تم توصيل الصوت مع اللاعب القريب! استمتع.", "log-success");
-                const audio = new Audio();
+                addLog("صوت اللاعب القريب متصل الآن! 🔊", "#00ff00");
+                const audio = document.createElement('audio');
                 audio.srcObject = stream;
-                audio.play();
+                audio.autoplay = true;
+                document.getElementById('remote-audios').appendChild(audio);
                 peer.audioElement = audio;
             });
 
             peer.on('error', (err) => {
-                addLog("فشل في توصيل الصوت: " + err, "log-error");
-                delete peers[targetSocketId];
-            });
-
-            peer.on('close', () => {
-                if (peer.audioElement) peer.audioElement.remove();
-                delete peers[targetSocketId];
+                addLog("فشل ربط الصوت: " + err, "#ff4444");
+                delete peers[targetId];
             });
 
             return peer;
